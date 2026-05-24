@@ -1,0 +1,17 @@
+.ipynb_checkpoints
+build
+*egg-info
+*.c
+!mod2sparse.c
+*.o
+*.so
+__pycache__
+LICENSE
+VERSION
+logs*
+slurm-*
+r00*
+itt-python
+.vscode
+.conda-gdg/
+.mplconfig/
