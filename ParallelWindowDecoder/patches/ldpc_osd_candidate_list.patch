@@ -1,0 +1,197 @@
+diff --git a/src_cpp/osd.hpp b/src_cpp/osd.hpp
+index e4f895c..eee2a2c 100644
+--- a/src_cpp/osd.hpp
++++ b/src_cpp/osd.hpp
+@@ -33,6 +33,9 @@ class OsdDecoder{
+         std::vector<uint8_t> osd0_decoding;
+         std::vector<uint8_t> osdw_decoding;
+         std::vector<std::vector<uint8_t>> osd_candidate_strings;
++        std::vector<std::vector<uint8_t>> osd_candidate_decodings;
++        std::vector<double> osd_candidate_weights;
++        int osd_candidate_list_size = 0;
+         std::vector<int> column_ordering;
+         ldpc::gf2sparse_linalg::RowReduce<ldpc::bp::BpEntry>* LuDecomposition;
+         
+@@ -106,13 +109,65 @@ class OsdDecoder{
+             delete this->LuDecomposition;
+         };
+ 
++        int set_osd_candidate_list_size(int list_size){
++            this->osd_candidate_list_size = list_size;
++            return this->osd_candidate_list_size;
++        }
++
++        double decoding_weight(std::vector<uint8_t>& decoding){
++            double weight = 0;
++            for(int i=0; i<this->pcm.n; i++){
++                if(decoding[i]==1){
++                    weight += log(1/this->channel_probabilities[i]);
++                }
++            }
++            return weight;
++        }
++
++        int push_osd_candidate(std::vector<uint8_t>& candidate_solution, double candidate_weight){
++            if(this->osd_candidate_list_size <= 0){
++                return 0;
++            }
++
++            int insert_index = 0;
++            while(
++                insert_index < this->osd_candidate_weights.size() &&
++                this->osd_candidate_weights[insert_index] <= candidate_weight
++            ){
++                insert_index++;
++            }
++
++            if(insert_index >= this->osd_candidate_list_size){
++                return 0;
++            }
++
++            this->osd_candidate_weights.insert(
++                this->osd_candidate_weights.begin() + insert_index,
++                candidate_weight
++            );
++            this->osd_candidate_decodings.insert(
++                this->osd_candidate_decodings.begin() + insert_index,
++                candidate_solution
++            );
++
++            if(this->osd_candidate_weights.size() > this->osd_candidate_list_size){
++                this->osd_candidate_weights.pop_back();
++                this->osd_candidate_decodings.pop_back();
++            }
++            return 1;
++        }
+ 
+         std::vector<uint8_t>& decode(std::vector<uint8_t>& syndrome, std::vector<double>& log_prob_ratios) {
+ 
++            this->osd_candidate_decodings.clear();
++            this->osd_candidate_weights.clear();
++
+             ldpc::sort::soft_decision_col_sort(log_prob_ratios, this->column_ordering,bit_count);
+ 
+             if(this->osd_order == 0){
+                 this->osd0_decoding = this->osdw_decoding =  this->LuDecomposition->fast_solve(syndrome,this->column_ordering);
++                double osd0_weight = this->decoding_weight(this->osd0_decoding);
++                this->push_osd_candidate(this->osd0_decoding, osd0_weight);
+                 return this->osd0_decoding;
+             }
+ 
+@@ -130,12 +185,8 @@ class OsdDecoder{
+ 
+             double candidate_weight, osd_min_weight;
+ 
+-            osd_min_weight=0;
+-            for(int i=0; i<this->pcm.n; i++){
+-                if(this->osd0_decoding[i]==1){
+-                    osd_min_weight+=log(1/this->channel_probabilities[i]);
+-                }
+-            }
++            osd_min_weight = this->decoding_weight(this->osd0_decoding);
++            this->push_osd_candidate(this->osd0_decoding, osd_min_weight);
+ 
+             std::vector<int> non_pivot_columns;
+             std::vector<ldpc::gf2sparse::GF2Entry*> delete_entries;
+@@ -169,12 +220,8 @@ class OsdDecoder{
+                 for(int i=0; i<k; i++){
+                     candidate_solution[non_pivot_columns[i]]=candidate_string[i];
+                 }
+-                candidate_weight=0;
+-                for(int i=0; i<this->pcm.n; i++){
+-                    if(candidate_solution[i]==1){
+-                        candidate_weight+=log(1/this->channel_probabilities[i]);
+-                    }
+-                }
++                candidate_weight = this->decoding_weight(candidate_solution);
++                this->push_osd_candidate(candidate_solution, candidate_weight);
+                 if(candidate_weight<osd_min_weight){
+                     osd_min_weight = candidate_weight;
+                     
+diff --git a/src_python/ldpc/bposd_decoder/_bposd_decoder.pxd b/src_python/ldpc/bposd_decoder/_bposd_decoder.pxd
+index 8740940..7199eb1 100644
+--- a/src_python/ldpc/bposd_decoder/_bposd_decoder.pxd
++++ b/src_python/ldpc/bposd_decoder/_bposd_decoder.pxd
+@@ -20,6 +20,9 @@ cdef extern from "osd.hpp" namespace "ldpc::osd" nogil:
+         vector[uint8_t]& decode(vector[uint8_t]& syndrome, vector[double]& log_prob_ratios)
+         vector[uint8_t] osd0_decoding
+         vector[uint8_t] osdw_decoding
++        vector[vector[uint8_t]] osd_candidate_decodings
++        vector[double] osd_candidate_weights
++        int set_osd_candidate_list_size(int list_size)
+         OsdMethod osd_method
+         int osd_setup()
+         int osd_method
+diff --git a/src_python/ldpc/bposd_decoder/_bposd_decoder.pyx b/src_python/ldpc/bposd_decoder/_bposd_decoder.pyx
+index 0358842..2847cec 100644
+--- a/src_python/ldpc/bposd_decoder/_bposd_decoder.pyx
++++ b/src_python/ldpc/bposd_decoder/_bposd_decoder.pyx
+@@ -135,6 +135,68 @@ cdef class BpOsdDecoder(BpDecoderBase):
+ 
+         return out
+ 
++    def decode_list(self, syndrome: np.ndarray, top_k: int = 4, force_osd: bool = False) -> np.ndarray:
++        """
++        Decodes the input syndrome and returns up to ``top_k`` OSD candidates.
++
++        If BP converges and ``force_osd`` is false, the returned list contains only
++        the BP decoding. Otherwise, OSD is run once and the C++ OSD search keeps
++        the best ``top_k`` candidate decodings encountered internally.
++        """
++
++        cdef int i
++        cdef int j
++        cdef int row_count
++
++        if top_k < 1:
++            raise ValueError("top_k must be at least 1.")
++
++        if not len(syndrome) == self.m:
++            raise ValueError(f"The syndrome must have length {self.m}. Not {len(syndrome)}.")
++
++        zero_syndrome = True
++
++        for i in range(self.m):
++            self._syndrome[i] = syndrome[i]
++            if self._syndrome[i]:
++                zero_syndrome = False
++        if zero_syndrome:
++            self.bpd.converge = True
++            return np.zeros((1, self.n), dtype=syndrome.dtype)
++
++        self.bpd.decode(self._syndrome)
++
++        if self.bpd.converge and not force_osd:
++            out = np.zeros((1, self.n), dtype=syndrome.dtype)
++            for i in range(self.n):
++                out[0, i] = self.bpd.decoding[i]
++            return out
++
++        self.osdD.set_osd_candidate_list_size(top_k)
++        self.osdD.decode(self._syndrome, self.bpd.log_prob_ratios)
++        self.osdD.set_osd_candidate_list_size(0)
++
++        row_count = self.osdD.osd_candidate_decodings.size()
++        if row_count == 0:
++            row_count = 1
++            out = np.zeros((row_count, self.n), dtype=syndrome.dtype)
++            for i in range(self.n):
++                out[0, i] = self.osdD.osdw_decoding[i]
++            return out
++
++        out = np.zeros((row_count, self.n), dtype=syndrome.dtype)
++        for i in range(row_count):
++            for j in range(self.n):
++                out[i, j] = self.osdD.osd_candidate_decodings[i][j]
++
++        return out
++
++    @property
++    def osd_candidate_weights(self) -> List[float]:
++        """Returns the weights from the most recent ``decode_list`` OSD run."""
++        cdef int i
++        return [self.osdD.osd_candidate_weights[i] for i in range(self.osdD.osd_candidate_weights.size())]
++
+ 
+ 
+     @property

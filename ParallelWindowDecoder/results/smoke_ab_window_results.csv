@@ -1,0 +1,9 @@
+decoder,N,p,num_repeat,num_shots,seed,max_iter,osd_order,n_a,n_b,elapsed_sec,flagged,logical_or_flagged,ler,detector_blocks,num_cols,diagnostics
+global,72,0.002,10,20,0,200,10,3,3,0.020816000003833324,0,0,0.0,11,3672,{}
+sliding,72,0.002,10,20,0,200,10,3,3,0.4621948749991134,12,12,0.6,11,3672,"{""sliding_width"": 3}"
+parallel,72,0.002,10,20,0,200,10,3,3,0.0480052080238238,0,0,0.0,11,3672,"{""schedule"": ""staggered"", ""a_windows"": 3, ""b_windows"": 2, ""a_window_rows"": [""s1-s2"", ""s4-s6"", ""s8-s11""], ""b_window_rows"": [""s2-s4"", ""s6-s8""], ""a_source"": ""decoded"", ""n_a"": 3, ""n_b"": 3, ""a_flagged_local"": 0, ""b_flagged_local"": 0}"
+oracle,72,0.002,10,20,0,200,10,3,3,0.02055162499891594,0,0,0.0,11,3672,"{""schedule"": ""staggered"", ""a_windows"": 3, ""b_windows"": 2, ""a_window_rows"": [""s1-s2"", ""s4-s6"", ""s8-s11""], ""b_window_rows"": [""s2-s4"", ""s6-s8""], ""a_source"": ""oracle"", ""n_a"": 3, ""n_b"": 3, ""a_flagged_local"": 0, ""b_flagged_local"": 0}"
+global,72,0.003,10,20,1,200,10,3,3,0.10421816702000797,0,0,0.0,11,3672,{}
+sliding,72,0.003,10,20,1,200,10,3,3,0.5901505419751629,17,17,0.85,11,3672,"{""sliding_width"": 3}"
+parallel,72,0.003,10,20,1,200,10,3,3,0.11724958301056176,0,1,0.05,11,3672,"{""schedule"": ""staggered"", ""a_windows"": 3, ""b_windows"": 2, ""a_window_rows"": [""s1-s2"", ""s4-s6"", ""s8-s11""], ""b_window_rows"": [""s2-s4"", ""s6-s8""], ""a_source"": ""decoded"", ""n_a"": 3, ""n_b"": 3, ""a_flagged_local"": 0, ""b_flagged_local"": 0}"
+oracle,72,0.003,10,20,1,200,10,3,3,0.021800249989610165,0,0,0.0,11,3672,"{""schedule"": ""staggered"", ""a_windows"": 3, ""b_windows"": 2, ""a_window_rows"": [""s1-s2"", ""s4-s6"", ""s8-s11""], ""b_window_rows"": [""s2-s4"", ""s6-s8""], ""a_source"": ""oracle"", ""n_a"": 3, ""n_b"": 3, ""a_flagged_local"": 0, ""b_flagged_local"": 0}"

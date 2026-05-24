@@ -1,0 +1,13 @@
+decoder,N,p,num_repeat,num_shots,seed,max_iter,osd_order,n_a,n_b,elapsed_sec,flagged,logical_or_flagged,ler,detector_blocks,num_cols,diagnostics
+global,72,0.002,10,100,0,200,10,3,3,0.15794283302966505,0,0,0.0,11,3672,{}
+sliding,72,0.002,10,100,0,200,10,3,3,2.227074750000611,53,54,0.54,11,3672,"{""sliding_width"": 3}"
+parallel,72,0.002,10,100,0,200,10,3,3,0.3010501660173759,5,5,0.05,11,3672,"{""schedule"": ""staggered"", ""a_windows"": 3, ""b_windows"": 2, ""a_window_rows"": [""s1-s2"", ""s4-s6"", ""s8-s11""], ""b_window_rows"": [""s2-s4"", ""s6-s8""], ""a_source"": ""decoded"", ""n_a"": 3, ""n_b"": 3, ""a_flagged_local"": 0, ""b_flagged_local"": 10}"
+oracle,72,0.002,10,100,0,200,10,3,3,0.09752975002629682,0,0,0.0,11,3672,"{""schedule"": ""staggered"", ""a_windows"": 3, ""b_windows"": 2, ""a_window_rows"": [""s1-s2"", ""s4-s6"", ""s8-s11""], ""b_window_rows"": [""s2-s4"", ""s6-s8""], ""a_source"": ""oracle"", ""n_a"": 3, ""n_b"": 3, ""a_flagged_local"": 0, ""b_flagged_local"": 0}"
+global,72,0.003,10,100,1,200,10,3,3,0.21810737502528355,0,0,0.0,11,3672,{}
+sliding,72,0.003,10,100,1,200,10,3,3,2.759583125007339,66,66,0.66,11,3672,"{""sliding_width"": 3}"
+parallel,72,0.003,10,100,1,200,10,3,3,0.43715883302502334,4,6,0.06,11,3672,"{""schedule"": ""staggered"", ""a_windows"": 3, ""b_windows"": 2, ""a_window_rows"": [""s1-s2"", ""s4-s6"", ""s8-s11""], ""b_window_rows"": [""s2-s4"", ""s6-s8""], ""a_source"": ""decoded"", ""n_a"": 3, ""n_b"": 3, ""a_flagged_local"": 0, ""b_flagged_local"": 8}"
+oracle,72,0.003,10,100,1,200,10,3,3,0.1107539160293527,0,0,0.0,11,3672,"{""schedule"": ""staggered"", ""a_windows"": 3, ""b_windows"": 2, ""a_window_rows"": [""s1-s2"", ""s4-s6"", ""s8-s11""], ""b_window_rows"": [""s2-s4"", ""s6-s8""], ""a_source"": ""oracle"", ""n_a"": 3, ""n_b"": 3, ""a_flagged_local"": 0, ""b_flagged_local"": 0}"
+global,72,0.004,10,100,2,200,10,3,3,0.46825929096667096,0,4,0.04,11,3672,{}
+sliding,72,0.004,10,100,2,200,10,3,3,3.2955868749995716,89,90,0.9,11,3672,"{""sliding_width"": 3}"
+parallel,72,0.004,10,100,2,200,10,3,3,0.6984297500457615,17,20,0.2,11,3672,"{""schedule"": ""staggered"", ""a_windows"": 3, ""b_windows"": 2, ""a_window_rows"": [""s1-s2"", ""s4-s6"", ""s8-s11""], ""b_window_rows"": [""s2-s4"", ""s6-s8""], ""a_source"": ""decoded"", ""n_a"": 3, ""n_b"": 3, ""a_flagged_local"": 0, ""b_flagged_local"": 34}"
+oracle,72,0.004,10,100,2,200,10,3,3,0.116180999961216,0,0,0.0,11,3672,"{""schedule"": ""staggered"", ""a_windows"": 3, ""b_windows"": 2, ""a_window_rows"": [""s1-s2"", ""s4-s6"", ""s8-s11""], ""b_window_rows"": [""s2-s4"", ""s6-s8""], ""a_source"": ""oracle"", ""n_a"": 3, ""n_b"": 3, ""a_flagged_local"": 0, ""b_flagged_local"": 0}"

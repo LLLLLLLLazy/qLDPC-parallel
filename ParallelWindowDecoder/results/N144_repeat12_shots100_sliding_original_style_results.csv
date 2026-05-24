@@ -1,0 +1,4 @@
+decoder,N,p,num_repeat,num_shots,seed,max_iter,osd_order,n_a,n_b,elapsed_sec,flagged,logical_or_flagged,ler,detector_blocks,num_cols,diagnostics
+sliding,144,0.003,12,100,0,200,10,3,3,5.837687375023961,0,0,0.0,13,8784,"{""sliding_width"": 3}"
+sliding,144,0.004,12,100,1,200,10,3,3,7.0645895000197925,0,5,0.05,13,8784,"{""sliding_width"": 3}"
+sliding,144,0.005,12,100,2,200,10,3,3,8.319722208019812,0,15,0.15,13,8784,"{""sliding_width"": 3}"

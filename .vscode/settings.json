@@ -1,0 +1,9 @@
+{
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "python.defaultInterpreterPath": "/Users/lazy/code/parallel/SlidingWindowDecoder/.conda-gdg/bin/python",
+    "python.analysis.extraPaths": [
+        "/Users/lazy/code/parallel/SlidingWindowDecoder",
+        "/Users/lazy/code/parallel/ParallelProcessing"
+    ]
+}
