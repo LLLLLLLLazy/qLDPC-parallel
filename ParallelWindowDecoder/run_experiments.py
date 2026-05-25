@@ -18,6 +18,10 @@ def parse_float_list(value: str) -> list[float]:
     return [float(item) for item in value.split(",") if item.strip()]
 
 
+def parse_int_tuple(value: str) -> tuple[int, ...]:
+    return tuple(int(item) for item in value.split(",") if item.strip())
+
+
 def parse_decoder_list(value: str) -> list[str]:
     allowed = {"global", "sliding", "parallel", "oracle"}
     decoders = [item.strip() for item in value.split(",") if item.strip()]
@@ -74,6 +78,27 @@ def run_one_config(args, p: float, seed: int) -> list[dict]:
                 window_shorten=args.window_shorten,
                 shorten_pre_max_iter=args.shorten_pre_max_iter,
                 b_noisy_boundary=args.b_noisy_boundary,
+                flag_triggered_single_flip=args.flag_triggered_single_flip,
+                bounded_two_flip=args.bounded_two_flip,
+                two_flip_candidates=args.two_flip_candidates,
+                a_boundary_weight_scale=args.a_boundary_weight_scale,
+                aba_boundary_feedback=args.aba_boundary_feedback,
+                aba_max_flips=args.aba_max_flips,
+                aba_candidate_cols=args.aba_candidate_cols,
+                a_neighbor_rerank=args.a_neighbor_rerank,
+                a_rerank_top_k=args.a_rerank_top_k,
+                a_neighbor_beta=args.a_neighbor_beta,
+                a_two_color_order=args.a_two_color_order,
+                a_shifted_ensemble=args.a_shifted_ensemble,
+                a_shift_offsets=parse_int_tuple(args.a_shift_offsets),
+                a_shifted_beta=args.a_shifted_beta,
+                tsae_top_k=args.tsae_top_k,
+                tsae_boundary_top_k=args.tsae_boundary_top_k,
+                tsae_stitch_mode=args.tsae_stitch_mode,
+                z_boundary_repair=args.z_boundary_repair,
+                z_repair_edge_width=args.z_repair_edge_width,
+                z_joint_retry=args.z_joint_retry,
+                seam_diagnostics=args.seam_diagnostics,
             )
         elif decoder_name == "oracle":
             e_hat, diagnostics = decode_parallel_ab(
@@ -96,6 +121,27 @@ def run_one_config(args, p: float, seed: int) -> list[dict]:
                 window_shorten=args.window_shorten,
                 shorten_pre_max_iter=args.shorten_pre_max_iter,
                 b_noisy_boundary=args.b_noisy_boundary,
+                flag_triggered_single_flip=False,
+                bounded_two_flip=False,
+                two_flip_candidates=args.two_flip_candidates,
+                a_boundary_weight_scale=args.a_boundary_weight_scale,
+                aba_boundary_feedback=False,
+                aba_max_flips=args.aba_max_flips,
+                aba_candidate_cols=args.aba_candidate_cols,
+                a_neighbor_rerank=False,
+                a_rerank_top_k=args.a_rerank_top_k,
+                a_neighbor_beta=args.a_neighbor_beta,
+                a_two_color_order="none",
+                a_shifted_ensemble=False,
+                a_shift_offsets=parse_int_tuple(args.a_shift_offsets),
+                a_shifted_beta=args.a_shifted_beta,
+                tsae_top_k=1,
+                tsae_boundary_top_k=1,
+                tsae_stitch_mode="none",
+                z_boundary_repair=False,
+                z_repair_edge_width=args.z_repair_edge_width,
+                z_joint_retry=False,
+                seam_diagnostics=args.seam_diagnostics,
             )
         else:
             raise AssertionError(decoder_name)
@@ -120,6 +166,27 @@ def run_one_config(args, p: float, seed: int) -> list[dict]:
                 "window_shorten": args.window_shorten,
                 "shorten_pre_max_iter": args.shorten_pre_max_iter,
                 "sliding_method": args.sliding_method,
+                "flag_triggered_single_flip": args.flag_triggered_single_flip,
+                "bounded_two_flip": args.bounded_two_flip,
+                "two_flip_candidates": args.two_flip_candidates,
+                "a_boundary_weight_scale": args.a_boundary_weight_scale,
+                "aba_boundary_feedback": args.aba_boundary_feedback,
+                "aba_max_flips": args.aba_max_flips,
+                "aba_candidate_cols": args.aba_candidate_cols,
+                "a_neighbor_rerank": args.a_neighbor_rerank,
+                "a_rerank_top_k": args.a_rerank_top_k,
+                "a_neighbor_beta": args.a_neighbor_beta,
+                "a_two_color_order": args.a_two_color_order,
+                "a_shifted_ensemble": args.a_shifted_ensemble,
+                "a_shift_offsets": args.a_shift_offsets,
+                "a_shifted_beta": args.a_shifted_beta,
+                "tsae_top_k": args.tsae_top_k,
+                "tsae_boundary_top_k": args.tsae_boundary_top_k,
+                "tsae_stitch_mode": args.tsae_stitch_mode,
+                "z_boundary_repair": args.z_boundary_repair,
+                "z_repair_edge_width": args.z_repair_edge_width,
+                "z_joint_retry": args.z_joint_retry,
+                "seam_diagnostics": args.seam_diagnostics,
                 "parallel_workers": args.parallel_workers,
                 "parallel_backend": args.parallel_backend,
                 "top_k_boundary": args.top_k_boundary,
@@ -158,6 +225,27 @@ def write_rows(path: Path, rows: list[dict]) -> None:
         "window_shorten",
         "shorten_pre_max_iter",
         "sliding_method",
+        "flag_triggered_single_flip",
+        "bounded_two_flip",
+        "two_flip_candidates",
+        "a_boundary_weight_scale",
+        "aba_boundary_feedback",
+        "aba_max_flips",
+        "aba_candidate_cols",
+        "a_neighbor_rerank",
+        "a_rerank_top_k",
+        "a_neighbor_beta",
+        "a_two_color_order",
+        "a_shifted_ensemble",
+        "a_shift_offsets",
+        "a_shifted_beta",
+        "tsae_top_k",
+        "tsae_boundary_top_k",
+        "tsae_stitch_mode",
+        "z_boundary_repair",
+        "z_repair_edge_width",
+        "z_joint_retry",
+        "seam_diagnostics",
         "parallel_workers",
         "parallel_backend",
         "top_k_boundary",
@@ -200,6 +288,27 @@ def main():
     parser.add_argument("--window-shorten", action="store_true")
     parser.add_argument("--shorten-pre-max-iter", type=int, default=8)
     parser.add_argument("--sliding-method", type=int, default=1)
+    parser.add_argument("--flag-triggered-single-flip", action="store_true")
+    parser.add_argument("--bounded-two-flip", action="store_true")
+    parser.add_argument("--two-flip-candidates", type=int, default=4)
+    parser.add_argument("--a-boundary-weight-scale", type=float, default=1.0)
+    parser.add_argument("--aba-boundary-feedback", action="store_true")
+    parser.add_argument("--aba-max-flips", type=int, default=2)
+    parser.add_argument("--aba-candidate-cols", type=int, default=16)
+    parser.add_argument("--a-neighbor-rerank", action="store_true")
+    parser.add_argument("--a-rerank-top-k", type=int, default=2)
+    parser.add_argument("--a-neighbor-beta", type=float, default=1.0)
+    parser.add_argument("--a-two-color-order", choices=["none", "odd-first", "even-first"], default="none")
+    parser.add_argument("--a-shifted-ensemble", action="store_true")
+    parser.add_argument("--a-shift-offsets", default="-2,0,2")
+    parser.add_argument("--a-shifted-beta", type=float, default=1.0)
+    parser.add_argument("--tsae-top-k", type=int, default=1)
+    parser.add_argument("--tsae-boundary-top-k", type=int, default=1)
+    parser.add_argument("--tsae-stitch-mode", choices=["none", "component", "pairwise"], default="none")
+    parser.add_argument("--z-boundary-repair", action="store_true")
+    parser.add_argument("--z-repair-edge-width", type=int, default=2)
+    parser.add_argument("--z-joint-retry", action="store_true")
+    parser.add_argument("--seam-diagnostics", action="store_true")
     parser.add_argument("--parallel-workers", type=int, default=1)
     parser.add_argument("--parallel-backend", choices=["thread", "process"], default="thread")
     parser.add_argument("--top-k-boundary", type=int, default=1)
