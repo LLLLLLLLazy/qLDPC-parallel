@@ -65,11 +65,15 @@ def decode_parallel_ab(
     tsae_boundary_top_k: int = 1,
     tsae_stitch_mode: str = "none",
     tsae_interface_branch: bool = False,
+    tsae_interface_gated: bool = False,
     tsae_interface_cols_per_side: int = 1,
     tsae_interface_joint_score: bool = False,
     tsae_interface_zb_weight: float = 1.0,
     tsae_interface_commit_offset: int = 0,
     a_shifted_chain_dp: bool = False,
+    a_shifted_joint_b_dp: bool = False,
+    a_shifted_joint_b_dp_lag: int = 0,
+    a_shifted_joint_flag_penalty: float = 1000.0,
     a_micro_sliding: bool = False,
     a_micro_sliding_order: str = "asc",
     oracle_diag: np.ndarray | None = None,
@@ -116,11 +120,15 @@ def decode_parallel_ab(
             tsae_boundary_top_k=tsae_boundary_top_k,
             tsae_stitch_mode=tsae_stitch_mode,
             tsae_interface_branch=tsae_interface_branch,
+            tsae_interface_gated=tsae_interface_gated,
             tsae_interface_cols_per_side=tsae_interface_cols_per_side,
             tsae_interface_joint_score=tsae_interface_joint_score,
             tsae_interface_zb_weight=tsae_interface_zb_weight,
             tsae_interface_commit_offset=tsae_interface_commit_offset,
             a_shifted_chain_dp=a_shifted_chain_dp,
+            a_shifted_joint_b_dp=a_shifted_joint_b_dp,
+            a_shifted_joint_b_dp_lag=a_shifted_joint_b_dp_lag,
+            a_shifted_joint_flag_penalty=a_shifted_joint_flag_penalty,
             a_micro_sliding=a_micro_sliding,
             a_micro_sliding_order=a_micro_sliding_order,
             oracle_diag=oracle_diag,
@@ -248,11 +256,15 @@ def decode_staggered_ab(
     tsae_boundary_top_k: int = 1,
     tsae_stitch_mode: str = "none",
     tsae_interface_branch: bool = False,
+    tsae_interface_gated: bool = False,
     tsae_interface_cols_per_side: int = 1,
     tsae_interface_joint_score: bool = False,
     tsae_interface_zb_weight: float = 1.0,
     tsae_interface_commit_offset: int = 0,
     a_shifted_chain_dp: bool = False,
+    a_shifted_joint_b_dp: bool = False,
+    a_shifted_joint_b_dp_lag: int = 0,
+    a_shifted_joint_flag_penalty: float = 1000.0,
     a_micro_sliding: bool = False,
     a_micro_sliding_order: str = "asc",
     oracle_diag: np.ndarray | None = None,
@@ -307,6 +319,8 @@ def decode_staggered_ab(
         raise ValueError("tsae_interface_branch requires a_shifted_ensemble")
     if tsae_interface_branch and tsae_stitch_mode != "none":
         raise ValueError("tsae_interface_branch is mutually exclusive with tsae_stitch_mode")
+    if tsae_interface_gated and not (tsae_interface_branch and a_shifted_joint_b_dp):
+        raise ValueError("tsae_interface_gated requires tsae_interface_branch and a_shifted_joint_b_dp")
     if tsae_interface_cols_per_side < 1:
         raise ValueError("tsae_interface_cols_per_side must be at least 1")
     if tsae_interface_joint_score and not tsae_interface_branch:
@@ -317,10 +331,20 @@ def decode_staggered_ab(
         raise ValueError("a_shifted_chain_dp requires a_shifted_ensemble")
     if a_shifted_chain_dp and tsae_stitch_mode != "none":
         raise ValueError("a_shifted_chain_dp is mutually exclusive with tsae_stitch_mode")
+    if a_shifted_joint_b_dp and not a_shifted_ensemble:
+        raise ValueError("a_shifted_joint_b_dp requires a_shifted_ensemble")
+    if a_shifted_joint_b_dp and (a_shifted_chain_dp or tsae_stitch_mode != "none"):
+        raise ValueError("a_shifted_joint_b_dp is mutually exclusive with a_shifted_chain_dp and tsae_stitch_mode")
+    if a_shifted_joint_b_dp_lag < 0:
+        raise ValueError("a_shifted_joint_b_dp_lag must be non-negative")
+    if a_shifted_joint_b_dp_lag and not a_shifted_joint_b_dp:
+        raise ValueError("a_shifted_joint_b_dp_lag requires a_shifted_joint_b_dp")
+    if a_shifted_joint_b_dp and a_shifted_joint_flag_penalty < 0:
+        raise ValueError("a_shifted_joint_flag_penalty must be non-negative")
     if a_micro_sliding and not a_shifted_ensemble:
         raise ValueError("a_micro_sliding requires a_shifted_ensemble")
-    if a_micro_sliding and (tsae_stitch_mode != "none" or a_shifted_chain_dp):
-        raise ValueError("a_micro_sliding is mutually exclusive with tsae_stitch_mode and a_shifted_chain_dp")
+    if a_micro_sliding and (tsae_stitch_mode != "none" or a_shifted_chain_dp or a_shifted_joint_b_dp):
+        raise ValueError("a_micro_sliding is mutually exclusive with tsae_stitch_mode and shifted DP modes")
     if tsae_interface_branch and a_micro_sliding:
         raise ValueError("tsae_interface_branch is mutually exclusive with a_micro_sliding")
     if a_micro_sliding_order not in ("asc", "desc", "center-out"):
@@ -600,6 +624,7 @@ def decode_staggered_ab(
     ]
 
     a_flagged = 0
+    b_flagged = 0
     a_commit_reliability = None
     a_neighbor_rerank_selected_nonzero = 0
     a_neighbor_rerank_total_risk = 0.0
@@ -617,6 +642,11 @@ def decode_staggered_ab(
     tsae_interface_branch_tasks = 0
     tsae_interface_branch_payloads = 0
     tsae_interface_branch_cols = 0
+    tsae_interface_gated_shots = 0
+    tsae_interface_gated_accepted = 0
+    tsae_interface_gated_improved_to_zero = 0
+    tsae_interface_gated_branch_payloads = 0
+    tsae_interface_gated_b_decodes = 0
     joint_branch_groups_total = 0
     joint_branch_b_star_nontrivial = 0
     joint_branch_chose_center_offset = 0
@@ -624,6 +654,12 @@ def decode_staggered_ab(
     chain_dp_selected_nonzero = 0
     chain_dp_final_total_risk = 0.0
     chain_dp_total_pair_weight = 0.0
+    joint_b_dp_decoded = False
+    joint_b_dp_shots = 0
+    joint_b_dp_b_decodes = 0
+    joint_b_dp_physical_residual = 0
+    joint_b_dp_selected_cost = 0.0
+    joint_b_dp_selected_nonzero = 0
     tsae_diag_in_pool = None
     tsae_diag_closest_hamming = None
     tsae_diag_pool_size = None
@@ -819,12 +855,14 @@ def decode_staggered_ab(
                 selected.extend(side_selected)
             return selected
 
+        interface_cols_by_a: list[list[int]] = []
         for a_index, task in enumerate(a_tasks):
             interface_cols = (
                 select_interface_branch_cols(a_index, task)
                 if tsae_interface_branch
                 else []
             )
+            interface_cols_by_a.append(interface_cols)
             if interface_cols:
                 tsae_interface_branch_tasks += 1
                 tsae_interface_branch_cols += len(interface_cols)
@@ -836,7 +874,7 @@ def decode_staggered_ab(
                 payload = shifted_a_payload(a_index, task, int(offset), len(candidate_payloads))
                 if payload is None:
                     continue
-                if interface_cols:
+                if interface_cols and not tsae_interface_gated:
                     branch_positions = [
                         col - payload["cols_slice"].start
                         for col in interface_cols
@@ -1059,6 +1097,419 @@ def decode_staggered_ab(
                     a_shifted_total_risk += float(final_risk)
                     chain_dp_final_total_risk += float(final_risk)
                     chain_dp_shots += 1
+
+                a_candidate_values = None
+                a_candidate_costs = None
+            elif a_shifted_joint_b_dp:
+                M = len(a_tasks)
+                if len(b_tasks) != max(0, M - 1):
+                    raise ValueError("a_shifted_joint_b_dp expects one B window between each adjacent A pair")
+
+                a_payload_lists = [payloads_by_a[a_index] for a_index in range(M)]
+                b_specs = []
+                for b_index, b_task in enumerate(b_tasks):
+                    rows = b_task["rows"]
+                    cols = b_task["cols"]
+                    mat = problem.chk[rows, cols]
+                    prior = problem.priors[cols]
+                    physical_width = cols.stop - cols.start
+                    if b_noisy_boundary:
+                        mat, prior = add_noisy_boundary_columns(
+                            problem,
+                            mat,
+                            prior,
+                            rows,
+                            cols,
+                            boundary_width=problem.detector_block_size,
+                        )
+                    decoder = make_bp_osd(
+                        mat,
+                        prior,
+                        max_iter,
+                        osd_order,
+                        window_shorten,
+                        shorten_pre_max_iter,
+                    )
+                    b_specs.append(
+                        {
+                            "rows": rows,
+                            "cols": cols,
+                            "mat": mat,
+                            "prior": prior,
+                            "physical_mat": problem.chk[rows, cols],
+                            "physical_width": physical_width,
+                            "decoder": decoder,
+                            "left_chk": np.ascontiguousarray(
+                                problem.chk[rows, a_tasks[b_index]["commit_cols"]],
+                                dtype=np.uint8,
+                            ),
+                            "right_chk": np.ascontiguousarray(
+                                problem.chk[rows, a_tasks[b_index + 1]["commit_cols"]],
+                                dtype=np.uint8,
+                            ),
+                        }
+                    )
+
+                joint_window_flagged = np.zeros((shots, len(b_specs)), dtype=bool)
+                joint_residual_by_shot = np.zeros(shots, dtype=np.int32)
+                joint_cost_by_shot = np.full(shots, np.inf, dtype=np.float64)
+                joint_nonzero_by_shot = np.zeros(shots, dtype=np.int32)
+
+                def apply_joint_b_dp(
+                    local_a_payload_lists: list[list[int]],
+                    local_shifted_values: list[np.ndarray],
+                    local_shifted_costs: list[np.ndarray],
+                    local_payload_offsets: list[int],
+                    shot_indices: np.ndarray,
+                    gated_pass: bool = False,
+                ) -> tuple[list[tuple[int, float, int, int, list[bool]]], int]:
+                    nonlocal joint_b_dp_b_decodes, tsae_interface_gated_b_decodes
+                    if M == 0 or shot_indices.size == 0:
+                        return [], 0
+
+                    candidate_count = int(shot_indices.size) * sum(
+                        len(items) for items in local_a_payload_lists
+                    )
+                    results = []
+
+                    def best_state(costs: np.ndarray) -> int:
+                        finite = np.isfinite(costs)
+                        if finite.any():
+                            return int(np.argmin(costs))
+                        return 0
+
+                    def trace_state(
+                        parents: list[np.ndarray],
+                        endpoint_state: int,
+                        current_a: int,
+                        target_a: int,
+                    ) -> int:
+                        state = int(endpoint_state)
+                        for edge_index in range(current_a - 1, target_a - 1, -1):
+                            state = int(parents[edge_index][state])
+                        return state
+
+                    def select_full_path(
+                        a_local_costs: list[np.ndarray],
+                        edge_costs: list[np.ndarray],
+                    ) -> tuple[list[int], float]:
+                        dp = a_local_costs[0].copy()
+                        parents: list[np.ndarray] = []
+                        for edge_index, costs in enumerate(edge_costs):
+                            transition = dp[:, None] + costs
+                            best_prev = np.argmin(transition, axis=0)
+                            dp = (
+                                transition[best_prev, np.arange(costs.shape[1])]
+                                + a_local_costs[edge_index + 1]
+                            )
+                            parents.append(best_prev.astype(np.int64))
+
+                        chosen = [0] * M
+                        if parents:
+                            chosen[M - 1] = best_state(dp)
+                            for edge_index in range(len(parents) - 1, -1, -1):
+                                chosen[edge_index] = int(parents[edge_index][chosen[edge_index + 1]])
+                            final_cost = float(dp[chosen[M - 1]])
+                        else:
+                            chosen[0] = best_state(dp)
+                            final_cost = float(dp[chosen[0]])
+                        return chosen, final_cost
+
+                    def select_frontier_path(
+                        a_local_costs: list[np.ndarray],
+                        edge_costs: list[np.ndarray],
+                        lag: int,
+                    ) -> tuple[list[int], float]:
+                        if M == 1:
+                            chosen0 = best_state(a_local_costs[0])
+                            return [chosen0], float(a_local_costs[0][chosen0])
+
+                        dp = a_local_costs[0].copy()
+                        parents: list[np.ndarray] = []
+                        chosen = [-1] * M
+                        last_committed = -1
+                        current_a = 0
+
+                        def prune_to(target_a: int, target_state: int) -> None:
+                            if target_a >= current_a:
+                                return
+                            for endpoint_state in range(dp.size):
+                                traced = trace_state(parents, endpoint_state, current_a, target_a)
+                                if traced != target_state:
+                                    dp[endpoint_state] = np.inf
+
+                        for edge_index, costs in enumerate(edge_costs):
+                            current_a = edge_index + 1
+                            transition = dp[:, None] + costs
+                            best_prev = np.argmin(transition, axis=0)
+                            dp = (
+                                transition[best_prev, np.arange(costs.shape[1])]
+                                + a_local_costs[current_a]
+                            )
+                            parents.append(best_prev.astype(np.int64))
+
+                            target_a = current_a - lag
+                            if target_a >= 0 and target_a > last_committed:
+                                endpoint_state = best_state(dp)
+                                target_state = trace_state(parents, endpoint_state, current_a, target_a)
+                                chosen[target_a] = target_state
+                                last_committed = target_a
+                                prune_to(target_a, target_state)
+
+                        for target_a in range(last_committed + 1, M):
+                            endpoint_state = best_state(dp)
+                            target_state = trace_state(parents, endpoint_state, current_a, target_a)
+                            chosen[target_a] = target_state
+                            last_committed = target_a
+                            prune_to(target_a, target_state)
+
+                        final_cost = 0.0
+                        for a_index, state in enumerate(chosen):
+                            final_cost += float(a_local_costs[a_index][state])
+                        for edge_index, costs in enumerate(edge_costs):
+                            final_cost += float(costs[chosen[edge_index], chosen[edge_index + 1]])
+                        return [int(state) for state in chosen], final_cost
+
+                    for local_pos, shot in enumerate(shot_indices):
+                        edge_costs = []
+                        edge_values = []
+                        edge_residuals = []
+                        decodes_this_shot = 0
+                        for b_index, spec in enumerate(b_specs):
+                            left_list = local_a_payload_lists[b_index]
+                            right_list = local_a_payload_lists[b_index + 1]
+                            costs = np.full((len(left_list), len(right_list)), np.inf, dtype=np.float64)
+                            residual_weights = np.zeros((len(left_list), len(right_list)), dtype=np.int32)
+                            values: list[list[np.ndarray | None]] = [
+                                [None for _ in right_list] for _ in left_list
+                            ]
+                            s_base = np.asarray(det_data[shot, spec["rows"]], dtype=np.uint8)
+                            for left_idx, left_payload in enumerate(left_list):
+                                left_candidate = np.asarray(
+                                    local_shifted_values[left_payload][local_pos],
+                                    dtype=np.uint8,
+                                )
+                                left_contrib = (spec["left_chk"] @ left_candidate) & 1
+                                for right_idx, right_payload in enumerate(right_list):
+                                    right_candidate = np.asarray(
+                                        local_shifted_values[right_payload][local_pos],
+                                        dtype=np.uint8,
+                                    )
+                                    right_contrib = (spec["right_chk"] @ right_candidate) & 1
+                                    local_syndrome = (
+                                        s_base ^ left_contrib.astype(np.uint8) ^ right_contrib.astype(np.uint8)
+                                    )
+                                    local_e = spec["decoder"].decode(local_syndrome).astype(np.uint8)
+                                    physical_e = local_e[: spec["physical_width"]].copy()
+                                    physical_residual = (
+                                        spec["physical_mat"] @ physical_e + local_syndrome
+                                    ) % 2
+                                    physical_weight = int(physical_residual.sum())
+                                    decode_residual = (spec["mat"] @ local_e + local_syndrome) % 2
+                                    closure_weight = max(physical_weight, int(decode_residual.sum()))
+                                    costs[left_idx, right_idx] = (
+                                        error_cost(local_e, spec["prior"])
+                                        + a_shifted_joint_flag_penalty * closure_weight
+                                    )
+                                    residual_weights[left_idx, right_idx] = closure_weight
+                                    values[left_idx][right_idx] = physical_e
+                                    decodes_this_shot += 1
+                            edge_costs.append(costs)
+                            edge_values.append(values)
+                            edge_residuals.append(residual_weights)
+
+                        joint_b_dp_b_decodes += decodes_this_shot
+                        if gated_pass:
+                            tsae_interface_gated_b_decodes += decodes_this_shot
+
+                        a_local_costs = [
+                            np.fromiter(
+                                (
+                                    local_shifted_costs[payload_idx][local_pos]
+                                    for payload_idx in local_a_payload_lists[a_index]
+                                ),
+                                dtype=np.float64,
+                                count=len(local_a_payload_lists[a_index]),
+                            )
+                            for a_index in range(M)
+                        ]
+                        if a_shifted_joint_b_dp_lag:
+                            frontier_lag = min(a_shifted_joint_b_dp_lag, max(1, M - 1))
+                            chosen, final_cost = select_frontier_path(
+                                a_local_costs,
+                                edge_costs,
+                                frontier_lag,
+                            )
+                        else:
+                            chosen, final_cost = select_full_path(a_local_costs, edge_costs)
+
+                        selected_residual = 0
+                        selected_nonzero = 0
+                        window_flags = []
+                        for a_index, state in enumerate(chosen):
+                            payload_idx = local_a_payload_lists[a_index][state]
+                            commit_cols = a_tasks[a_index]["commit_cols"]
+                            total[shot, commit_cols] = local_shifted_values[payload_idx][local_pos]
+                            selected_nonzero += int(local_payload_offsets[payload_idx] != 0)
+                        for b_index, spec in enumerate(b_specs):
+                            left_state = chosen[b_index]
+                            right_state = chosen[b_index + 1]
+                            b_value = edge_values[b_index][left_state][right_state]
+                            if b_value is None:
+                                raise AssertionError("missing B candidate value")
+                            total[shot, spec["cols"]] = b_value
+                            residual_weight = int(edge_residuals[b_index][left_state, right_state])
+                            selected_residual += residual_weight
+                            window_flags.append(residual_weight > 0)
+
+                        results.append((int(shot), final_cost, selected_residual, selected_nonzero, window_flags))
+                    return results, candidate_count
+
+                base_results, base_candidate_count = apply_joint_b_dp(
+                    a_payload_lists,
+                    shifted_values,
+                    shifted_costs,
+                    payload_offsets,
+                    np.arange(shots, dtype=int),
+                )
+                joint_b_dp_decoded = bool(base_results)
+                joint_b_dp_shots += len(base_results)
+                a_shifted_candidate_count += base_candidate_count
+                for shot, final_cost, selected_residual, selected_nonzero, window_flags in base_results:
+                    joint_cost_by_shot[shot] = final_cost
+                    joint_residual_by_shot[shot] = selected_residual
+                    joint_nonzero_by_shot[shot] = selected_nonzero
+                    joint_window_flagged[shot, : len(window_flags)] = window_flags
+
+                if tsae_interface_gated and tsae_interface_branch:
+                    gated_shots = np.flatnonzero(joint_residual_by_shot > 0)
+                    tsae_interface_gated_shots = int(gated_shots.size)
+                    if gated_shots.size:
+                        base_total = total[gated_shots].copy()
+                        base_cost = joint_cost_by_shot[gated_shots].copy()
+                        base_residual = joint_residual_by_shot[gated_shots].copy()
+                        base_nonzero = joint_nonzero_by_shot[gated_shots].copy()
+                        base_window_flags = joint_window_flagged[gated_shots].copy()
+
+                        gated_candidate_payloads = []
+                        gated_payload_to_a: list[int] = []
+                        gated_payload_offsets: list[int] = []
+                        for a_index, task in enumerate(a_tasks):
+                            interface_cols = interface_cols_by_a[a_index]
+                            seen_offsets: set[int] = set()
+                            for offset in a_shift_offsets:
+                                if offset in seen_offsets:
+                                    continue
+                                seen_offsets.add(int(offset))
+                                payload = shifted_a_payload(
+                                    a_index,
+                                    task,
+                                    int(offset),
+                                    len(gated_candidate_payloads),
+                                )
+                                if payload is None:
+                                    continue
+                                payload = dict(payload)
+                                payload["syndromes"] = payload["syndromes"][gated_shots]
+                                if interface_cols:
+                                    branch_positions = [
+                                        col - payload["cols_slice"].start
+                                        for col in interface_cols
+                                        if payload["cols_slice"].start <= col < payload["cols_slice"].stop
+                                    ]
+                                    if len(branch_positions) != len(interface_cols):
+                                        continue
+                                    for bits in itertools.product((0, 1), repeat=len(branch_positions)):
+                                        branched_payload = dict(payload)
+                                        branched_payload["task_index"] = len(gated_candidate_payloads)
+                                        branched_payload["fixed_value_positions"] = branch_positions
+                                        branched_payload["fixed_value_bits"] = list(bits)
+                                        gated_candidate_payloads.append(branched_payload)
+                                        gated_payload_to_a.append(a_index)
+                                        gated_payload_offsets.append(int(offset))
+                                        tsae_interface_branch_payloads += 1
+                                        tsae_interface_gated_branch_payloads += 1
+                                else:
+                                    payload["task_index"] = len(gated_candidate_payloads)
+                                    gated_candidate_payloads.append(payload)
+                                    gated_payload_to_a.append(a_index)
+                                    gated_payload_offsets.append(int(offset))
+                            if not any(payload_a == a_index for payload_a in gated_payload_to_a):
+                                payload = shifted_a_payload(
+                                    a_index,
+                                    task,
+                                    0,
+                                    len(gated_candidate_payloads),
+                                )
+                                if payload is None:
+                                    raise ValueError(f"no valid gated shifted A payload for task {a_index}")
+                                payload = dict(payload)
+                                payload["syndromes"] = payload["syndromes"][gated_shots]
+                                payload["task_index"] = len(gated_candidate_payloads)
+                                gated_candidate_payloads.append(payload)
+                                gated_payload_to_a.append(a_index)
+                                gated_payload_offsets.append(0)
+
+                        gated_shifted_values = []
+                        gated_shifted_costs = []
+                        gated_expanded_to_a: list[int] = []
+                        gated_expanded_offsets: list[int] = []
+                        for payload_index, values, costs, flagged in run_a_candidate_payloads(
+                            gated_candidate_payloads,
+                            parallel_workers,
+                            parallel_backend,
+                        ):
+                            for cand_index in range(values.shape[1]):
+                                gated_shifted_values.append(values[:, cand_index, :])
+                                gated_shifted_costs.append(costs[:, cand_index])
+                                gated_expanded_to_a.append(gated_payload_to_a[payload_index])
+                                gated_expanded_offsets.append(gated_payload_offsets[payload_index])
+                            a_flagged += flagged
+
+                        gated_payloads_by_a: list[list[int]] = [[] for _ in a_tasks]
+                        for payload_index, a_index in enumerate(gated_expanded_to_a):
+                            gated_payloads_by_a[a_index].append(payload_index)
+
+                        gated_results, gated_candidate_count = apply_joint_b_dp(
+                            gated_payloads_by_a,
+                            gated_shifted_values,
+                            gated_shifted_costs,
+                            gated_expanded_offsets,
+                            gated_shots,
+                            gated_pass=True,
+                        )
+                        a_shifted_candidate_count += gated_candidate_count
+                        for local_pos, (shot, final_cost, selected_residual, selected_nonzero, window_flags) in enumerate(gated_results):
+                            accept = (
+                                selected_residual < int(base_residual[local_pos])
+                                or (
+                                    selected_residual == int(base_residual[local_pos])
+                                    and final_cost < float(base_cost[local_pos])
+                                )
+                            )
+                            if accept:
+                                tsae_interface_gated_accepted += 1
+                                if selected_residual == 0 and int(base_residual[local_pos]) > 0:
+                                    tsae_interface_gated_improved_to_zero += 1
+                                joint_cost_by_shot[shot] = final_cost
+                                joint_residual_by_shot[shot] = selected_residual
+                                joint_nonzero_by_shot[shot] = selected_nonzero
+                                joint_window_flagged[shot, : len(window_flags)] = window_flags
+                            else:
+                                total[shot] = base_total[local_pos]
+                                joint_cost_by_shot[shot] = base_cost[local_pos]
+                                joint_residual_by_shot[shot] = base_residual[local_pos]
+                                joint_nonzero_by_shot[shot] = base_nonzero[local_pos]
+                                joint_window_flagged[shot] = base_window_flags[local_pos]
+
+                b_flagged = int(joint_window_flagged.sum())
+                joint_b_dp_physical_residual = int(joint_residual_by_shot.sum())
+                finite_costs = joint_cost_by_shot[np.isfinite(joint_cost_by_shot)]
+                joint_b_dp_selected_cost = float(finite_costs.sum())
+                joint_b_dp_selected_nonzero = int(joint_nonzero_by_shot.sum())
+                a_shifted_selected_nonzero += joint_b_dp_selected_nonzero
+                a_shifted_total_risk += float(joint_b_dp_physical_residual)
+                a_shifted_total_cost += joint_b_dp_selected_cost
 
                 a_candidate_values = None
                 a_candidate_costs = None
@@ -1383,8 +1834,12 @@ def decode_staggered_ab(
         and oracle_errors is None
         and use_buffer_aligned
         and top_k_boundary <= 1
+        and not joint_b_dp_decoded
     )
     a_only_total = total.copy()
+    if joint_b_dp_decoded:
+        for task in b_tasks:
+            a_only_total[:, task["cols"]] = 0
     r_after_a = (det_data + a_only_total @ problem.chk.T) % 2
     b_local_residuals = None
     b_noisy_boundary_values = None
@@ -1463,6 +1918,20 @@ def decode_staggered_ab(
                 if ((mat @ local_e + det_data[shot, rows]) % 2).any():
                     b_flagged += 1
                 total[shot, cols] = local_e
+    elif joint_b_dp_decoded:
+        topk_selected_cost = joint_b_dp_selected_cost
+        if seam_diagnostics and use_buffer_aligned:
+            b_local_residuals = []
+            residual = r_after_a
+            for task in b_tasks:
+                rows = task["rows"]
+                cols = task["cols"]
+                values = total[:, cols]
+                local_residual = (
+                    values @ problem.chk[rows, cols].T
+                    + residual[:, rows]
+                ) % 2
+                b_local_residuals.append(local_residual.astype(np.uint8))
     elif oracle_errors is not None or top_k_boundary <= 1 or not use_buffer_aligned:
         residual = (det_data + total @ problem.chk.T) % 2
 
@@ -2204,10 +2673,16 @@ def decode_staggered_ab(
         "tsae_boundary_top_k": tsae_boundary_top_k,
         "tsae_stitch_mode": tsae_stitch_mode,
         "tsae_interface_branch": tsae_interface_branch,
+        "tsae_interface_gated": tsae_interface_gated,
         "tsae_interface_cols_per_side": tsae_interface_cols_per_side,
         "tsae_interface_branch_tasks": tsae_interface_branch_tasks,
         "tsae_interface_branch_payloads": tsae_interface_branch_payloads,
         "tsae_interface_branch_cols": tsae_interface_branch_cols,
+        "tsae_interface_gated_shots": tsae_interface_gated_shots,
+        "tsae_interface_gated_accepted": tsae_interface_gated_accepted,
+        "tsae_interface_gated_improved_to_zero": tsae_interface_gated_improved_to_zero,
+        "tsae_interface_gated_branch_payloads": tsae_interface_gated_branch_payloads,
+        "tsae_interface_gated_b_decodes": tsae_interface_gated_b_decodes,
         "tsae_interface_joint_score": tsae_interface_joint_score,
         "tsae_interface_zb_weight": tsae_interface_zb_weight,
         "tsae_interface_commit_offset": tsae_interface_commit_offset,
@@ -2230,6 +2705,15 @@ def decode_staggered_ab(
         "chain_dp_shots": chain_dp_shots,
         "chain_dp_selected_nonzero": chain_dp_selected_nonzero,
         "chain_dp_final_total_risk": chain_dp_final_total_risk,
+        "a_shifted_joint_b_dp": a_shifted_joint_b_dp,
+        "a_shifted_joint_b_dp_lag": a_shifted_joint_b_dp_lag,
+        "joint_b_dp_frontier_streaming": bool(a_shifted_joint_b_dp and a_shifted_joint_b_dp_lag),
+        "a_shifted_joint_flag_penalty": a_shifted_joint_flag_penalty,
+        "joint_b_dp_shots": joint_b_dp_shots,
+        "joint_b_dp_b_decodes": joint_b_dp_b_decodes,
+        "joint_b_dp_physical_residual": joint_b_dp_physical_residual,
+        "joint_b_dp_selected_cost": joint_b_dp_selected_cost,
+        "joint_b_dp_selected_nonzero": joint_b_dp_selected_nonzero,
         "tsae_diag_in_pool": tsae_diag_in_pool.tolist() if tsae_diag_in_pool is not None else None,
         "tsae_diag_closest_hamming": tsae_diag_closest_hamming.tolist() if tsae_diag_closest_hamming is not None else None,
         "tsae_diag_pool_size": tsae_diag_pool_size.tolist() if tsae_diag_pool_size is not None else None,

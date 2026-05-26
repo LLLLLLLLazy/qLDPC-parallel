@@ -104,6 +104,8 @@ def main():
     parser.add_argument("--tsae-boundary-top-k", type=int, default=1)
     parser.add_argument("--tsae-stitch-mode", choices=["none", "component", "pairwise"], default="none")
     parser.add_argument("--tsae-interface-branch", action="store_true")
+    parser.add_argument("--tsae-interface-gated", action="store_true",
+                        help="With joint-B-DP, branch interface bits only on shots whose light pass leaves physical residual.")
     parser.add_argument("--tsae-interface-cols-per-side", type=int, default=1)
     parser.add_argument("--tsae-interface-joint-score", action="store_true",
                         help="Pick interface branch b* by summing local costs across all shifted sub-windows, plus optional B-residual penalty.")
@@ -112,6 +114,12 @@ def main():
     parser.add_argument("--tsae-interface-commit-offset", type=int, default=0,
                         help="Offset to commit from after picking joint b*. Default 0 (W_C).")
     parser.add_argument("--a-shifted-chain-dp", action="store_true")
+    parser.add_argument("--a-shifted-joint-b-dp", action="store_true",
+                        help="Select shifted A candidates with a chain DP whose edge costs come from actual B-window decodes.")
+    parser.add_argument("--a-shifted-joint-b-dp-lag", type=int, default=0,
+                        help="Use streaming frontier-DP with this A-window lag; 0 keeps the full offline chain DP.")
+    parser.add_argument("--a-shifted-joint-flag-penalty", type=float, default=1000.0,
+                        help="Penalty per physical B residual bit in --a-shifted-joint-b-dp.")
     parser.add_argument("--a-micro-sliding", action="store_true")
     parser.add_argument("--a-micro-sliding-order", choices=["asc", "desc", "center-out"], default="asc")
     parser.add_argument("--tsae-oracle-diag", action="store_true")
@@ -198,11 +206,15 @@ def main():
         tsae_boundary_top_k=args.tsae_boundary_top_k,
         tsae_stitch_mode=args.tsae_stitch_mode,
         tsae_interface_branch=args.tsae_interface_branch,
+        tsae_interface_gated=args.tsae_interface_gated,
         tsae_interface_cols_per_side=args.tsae_interface_cols_per_side,
         tsae_interface_joint_score=args.tsae_interface_joint_score,
         tsae_interface_zb_weight=args.tsae_interface_zb_weight,
         tsae_interface_commit_offset=args.tsae_interface_commit_offset,
         a_shifted_chain_dp=args.a_shifted_chain_dp,
+        a_shifted_joint_b_dp=args.a_shifted_joint_b_dp,
+        a_shifted_joint_b_dp_lag=args.a_shifted_joint_b_dp_lag,
+        a_shifted_joint_flag_penalty=args.a_shifted_joint_flag_penalty,
         a_micro_sliding=args.a_micro_sliding,
         a_micro_sliding_order=args.a_micro_sliding_order,
         oracle_diag=err_data if args.tsae_oracle_diag else None,

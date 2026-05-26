@@ -96,7 +96,17 @@ def run_one_config(args, p: float, seed: int) -> list[dict]:
                 tsae_boundary_top_k=args.tsae_boundary_top_k,
                 tsae_stitch_mode=args.tsae_stitch_mode,
                 tsae_interface_branch=args.tsae_interface_branch,
+                tsae_interface_gated=args.tsae_interface_gated,
                 tsae_interface_cols_per_side=args.tsae_interface_cols_per_side,
+                tsae_interface_joint_score=args.tsae_interface_joint_score,
+                tsae_interface_zb_weight=args.tsae_interface_zb_weight,
+                tsae_interface_commit_offset=args.tsae_interface_commit_offset,
+                a_shifted_chain_dp=args.a_shifted_chain_dp,
+                a_shifted_joint_b_dp=args.a_shifted_joint_b_dp,
+                a_shifted_joint_b_dp_lag=args.a_shifted_joint_b_dp_lag,
+                a_shifted_joint_flag_penalty=args.a_shifted_joint_flag_penalty,
+                a_micro_sliding=args.a_micro_sliding,
+                a_micro_sliding_order=args.a_micro_sliding_order,
                 z_boundary_repair=args.z_boundary_repair,
                 z_repair_edge_width=args.z_repair_edge_width,
                 z_joint_retry=args.z_joint_retry,
@@ -140,6 +150,18 @@ def run_one_config(args, p: float, seed: int) -> list[dict]:
                 tsae_top_k=1,
                 tsae_boundary_top_k=1,
                 tsae_stitch_mode="none",
+                tsae_interface_branch=False,
+                tsae_interface_gated=False,
+                tsae_interface_cols_per_side=args.tsae_interface_cols_per_side,
+                tsae_interface_joint_score=False,
+                tsae_interface_zb_weight=args.tsae_interface_zb_weight,
+                tsae_interface_commit_offset=args.tsae_interface_commit_offset,
+                a_shifted_chain_dp=False,
+                a_shifted_joint_b_dp=False,
+                a_shifted_joint_b_dp_lag=0,
+                a_shifted_joint_flag_penalty=args.a_shifted_joint_flag_penalty,
+                a_micro_sliding=False,
+                a_micro_sliding_order=args.a_micro_sliding_order,
                 z_boundary_repair=False,
                 z_repair_edge_width=args.z_repair_edge_width,
                 z_joint_retry=False,
@@ -186,7 +208,17 @@ def run_one_config(args, p: float, seed: int) -> list[dict]:
                 "tsae_boundary_top_k": args.tsae_boundary_top_k,
                 "tsae_stitch_mode": args.tsae_stitch_mode,
                 "tsae_interface_branch": args.tsae_interface_branch,
+                "tsae_interface_gated": args.tsae_interface_gated,
                 "tsae_interface_cols_per_side": args.tsae_interface_cols_per_side,
+                "tsae_interface_joint_score": args.tsae_interface_joint_score,
+                "tsae_interface_zb_weight": args.tsae_interface_zb_weight,
+                "tsae_interface_commit_offset": args.tsae_interface_commit_offset,
+                "a_shifted_chain_dp": args.a_shifted_chain_dp,
+                "a_shifted_joint_b_dp": args.a_shifted_joint_b_dp,
+                "a_shifted_joint_b_dp_lag": args.a_shifted_joint_b_dp_lag,
+                "a_shifted_joint_flag_penalty": args.a_shifted_joint_flag_penalty,
+                "a_micro_sliding": args.a_micro_sliding,
+                "a_micro_sliding_order": args.a_micro_sliding_order,
                 "z_boundary_repair": args.z_boundary_repair,
                 "z_repair_edge_width": args.z_repair_edge_width,
                 "z_joint_retry": args.z_joint_retry,
@@ -247,7 +279,17 @@ def write_rows(path: Path, rows: list[dict]) -> None:
         "tsae_boundary_top_k",
         "tsae_stitch_mode",
         "tsae_interface_branch",
+        "tsae_interface_gated",
         "tsae_interface_cols_per_side",
+        "tsae_interface_joint_score",
+        "tsae_interface_zb_weight",
+        "tsae_interface_commit_offset",
+        "a_shifted_chain_dp",
+        "a_shifted_joint_b_dp",
+        "a_shifted_joint_b_dp_lag",
+        "a_shifted_joint_flag_penalty",
+        "a_micro_sliding",
+        "a_micro_sliding_order",
         "z_boundary_repair",
         "z_repair_edge_width",
         "z_joint_retry",
@@ -312,7 +354,17 @@ def main():
     parser.add_argument("--tsae-boundary-top-k", type=int, default=1)
     parser.add_argument("--tsae-stitch-mode", choices=["none", "component", "pairwise"], default="none")
     parser.add_argument("--tsae-interface-branch", action="store_true")
+    parser.add_argument("--tsae-interface-gated", action="store_true")
     parser.add_argument("--tsae-interface-cols-per-side", type=int, default=1)
+    parser.add_argument("--tsae-interface-joint-score", action="store_true")
+    parser.add_argument("--tsae-interface-zb-weight", type=float, default=1.0)
+    parser.add_argument("--tsae-interface-commit-offset", type=int, default=0)
+    parser.add_argument("--a-shifted-chain-dp", action="store_true")
+    parser.add_argument("--a-shifted-joint-b-dp", action="store_true")
+    parser.add_argument("--a-shifted-joint-b-dp-lag", type=int, default=0)
+    parser.add_argument("--a-shifted-joint-flag-penalty", type=float, default=1000.0)
+    parser.add_argument("--a-micro-sliding", action="store_true")
+    parser.add_argument("--a-micro-sliding-order", choices=["asc", "desc", "center-out"], default="asc")
     parser.add_argument("--z-boundary-repair", action="store_true")
     parser.add_argument("--z-repair-edge-width", type=int, default=2)
     parser.add_argument("--z-joint-retry", action="store_true")

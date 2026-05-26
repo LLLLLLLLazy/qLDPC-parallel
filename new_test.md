@@ -4436,3 +4436,389 @@ z_B targeted repair 能降低部分 residual weight，
 如果目标是降低 flagged，acceptance 应该要求 residual 清零，
 或者改成重新求解相关 B window + A boundary 的 joint physical problem。
 ```
+
+## 28. TSAE joint-B-DP: 用多个小窗口近似大窗口信息
+
+### 28.1 动机
+
+前面的 TSAE / chain-DP / micro-sliding / joint-score 说明：
+
+```text
+1. shifted A 多视角本身有效；
+2. 只看 A candidate 对 B syndrome 的 popcount 还不够；
+3. z_B repair 能降 residual weight，但不能把 residual 清零；
+4. 继续优化应该让 A candidate 选择直接看到 B 小窗口是否能物理闭合。
+```
+
+因此新增：
+
+```text
+--a-shifted-joint-b-dp
+--a-shifted-joint-flag-penalty
+```
+
+策略：
+
+```text
+A 仍然只用 5-row shifted 小窗口产生 candidate；
+对每个相邻 A candidate pair，真正运行对应的 B 小窗口解码；
+边权 = B 解码 cost + penalty * physical B residual weight；
+最后用 chain DP 选整条 A/B candidate path。
+```
+
+这里的 physical B residual 不包含 noisy boundary 虚拟列的贡献，
+所以它直接惩罚 z_B witness，而不是事后再 repair。
+
+### 28.2 轻量版 joint-B-DP
+
+命令：
+
+```bash
+SlidingWindowDecoder/.conda-gdg/bin/python ParallelWindowDecoder/run_experiments.py \
+  --N 144 \
+  --num-repeat 12 \
+  --num-shots 100 \
+  --p-list 0.003,0.004,0.005,0.007 \
+  --decoders parallel \
+  --a-size 3 \
+  --a-solve-size 5 \
+  --b-width 5 \
+  --sliding-width 3 \
+  --top-k-boundary 1 \
+  --a-noisy-boundary \
+  --b-noisy-boundary \
+  --window-shorten \
+  --a-shifted-ensemble \
+  --a-shift-offsets=-2,0,2 \
+  --a-shifted-beta 1.0 \
+  --a-shifted-joint-b-dp \
+  --seam-diagnostics \
+  --parallel-workers 4 \
+  --parallel-backend process \
+  --out ParallelWindowDecoder/results/N144_repeat12_shots100_TSAE_joint_b_dp_ab_noisy_shorten_parallel_only.csv
+```
+
+结果：
+
+| p | TSAE baseline | TSAE joint-B-DP | sliding w3 | a9/b9 |
+|---:|---:|---:|---:|---:|
+| 0.003 | 0/100, LER 0.000 | 0/100, LER 0.000, 4.758s | 0/100, LER 0.000 | 0/100, LER 0.000 |
+| 0.004 | 3/100, LER 0.040 | 0/100, LER 0.010, 6.163s | 0/100, LER 0.020 | 0/100, LER 0.000 |
+| 0.005 | 4/100, LER 0.140 | 0/100, LER 0.090, 9.628s | 0/100, LER 0.120 | 0/100, LER 0.040 |
+| 0.007 | 25/100, LER 0.560 | 14/100, LER 0.470, 19.824s | 0/100, LER 0.450 | 0/100, LER 0.430 |
+
+diagnostics：
+
+| p | joint B decodes | physical residual | selected nonzero shift |
+|---:|---:|---:|---:|
+| 0.003 | 600 | 0 | 59 |
+| 0.004 | 600 | 0 | 68 |
+| 0.005 | 600 | 0 | 69 |
+| 0.007 | 600 | 70 | 63 |
+
+结论：
+
+```text
+轻量版 joint-B-DP 明显优于 TSAE baseline。
+
+p=0.004: flagged 3/100 -> 0/100, LER 0.040 -> 0.010
+p=0.005: flagged 4/100 -> 0/100, LER 0.140 -> 0.090
+p=0.007: flagged 25/100 -> 14/100, LER 0.560 -> 0.470
+```
+
+它没有扩大单个 A/B 窗口，只增加了 small-window candidate pair 的 B 解码次数。
+这说明“先生成多个小窗口视角，再用真实 B 解码闭合能力做联合选择”比 residual popcount score 更接近大窗口信息。
+
+### 28.3 interface branch + joint-B-DP
+
+进一步把已有 interface branching 和 joint-B-DP 组合：
+
+```bash
+SlidingWindowDecoder/.conda-gdg/bin/python ParallelWindowDecoder/run_experiments.py \
+  --N 144 \
+  --num-repeat 12 \
+  --num-shots 100 \
+  --seed 2 \
+  --p-list 0.005,0.007 \
+  --decoders parallel \
+  --a-size 3 \
+  --a-solve-size 5 \
+  --b-width 5 \
+  --sliding-width 3 \
+  --top-k-boundary 1 \
+  --a-noisy-boundary \
+  --b-noisy-boundary \
+  --window-shorten \
+  --a-shifted-ensemble \
+  --a-shift-offsets=-2,0,2 \
+  --a-shifted-beta 1.0 \
+  --tsae-interface-branch \
+  --tsae-interface-cols-per-side 1 \
+  --a-shifted-joint-b-dp \
+  --parallel-workers 4 \
+  --parallel-backend process \
+  --out ParallelWindowDecoder/results/N144_repeat12_shots100_TSAE_interface_joint_b_dp_seed2_ab_noisy_shorten_parallel_only.csv
+```
+
+结果使用 seed 2，使 p=0.005 对应原四点 sweep 的 seed 2，
+p=0.007 对应 seed 3：
+
+| p | TSAE baseline | joint-B-DP | interface + joint-B-DP | sliding w3 | a9/b9 |
+|---:|---:|---:|---:|---:|---:|
+| 0.005 | 4/100, LER 0.140 | 0/100, LER 0.090 | 0/100, LER 0.060, 37.603s | 0/100, LER 0.120 | 0/100, LER 0.040 |
+| 0.007 | 25/100, LER 0.560 | 14/100, LER 0.470 | 8/100, LER 0.400, 77.605s | 0/100, LER 0.450 | 0/100, LER 0.430 |
+
+diagnostics：
+
+| p | joint B decodes | physical residual | branch payloads |
+|---:|---:|---:|---:|
+| 0.005 | 2400 | 0 | 12 |
+| 0.007 | 2400 | 24 | 12 |
+
+结论：
+
+```text
+interface + joint-B-DP 进一步降低 LER，
+并且 p=0.007 达到 LER 0.400，低于 sliding 和 a9/b9 的本轮 100-shot 结果。
+
+代价是 runtime 明显增加：
+p=0.005: 9.628s -> 37.603s
+p=0.007: 19.824s -> 77.605s
+```
+
+推荐后续方向：
+
+```text
+1. 默认候选使用轻量 joint-B-DP；
+2. 只在 joint-B-DP 仍存在 physical residual 的 shot 上触发 interface branch；
+3. 对 p=0.007 的 8 个 flagged shot 做 oracle diag，判断是 candidate pool 不含正确 A commit，
+   还是 DP score 在含正确 candidate 时选错。
+```
+
+### 28.4 gated interface branch + joint-B-DP
+
+实现 gated 版本：
+
+```text
+--tsae-interface-branch
+--tsae-interface-gated
+--a-shifted-joint-b-dp
+```
+
+策略：
+
+```text
+1. 先跑轻量 joint-B-DP；
+2. 记录每个 shot 的 selected physical B residual；
+3. 只对 residual > 0 的 shot 构造 interface branch candidate；
+4. 对这些 shot 重跑 joint-B-DP；
+5. 只有 branch 后 residual 更低，或者 residual 相同但 score 更低，才覆盖轻量结果。
+```
+
+这样保留原来的全量 `--tsae-interface-branch` 行为，
+gated 是额外开关，不改变旧实验语义。
+
+可比 100-shot 命令：
+
+```bash
+SlidingWindowDecoder/.conda-gdg/bin/python ParallelWindowDecoder/run_experiments.py \
+  --N 144 \
+  --num-repeat 12 \
+  --num-shots 100 \
+  --seed 2 \
+  --p-list 0.005,0.007 \
+  --decoders parallel \
+  --a-size 3 \
+  --a-solve-size 5 \
+  --b-width 5 \
+  --sliding-width 3 \
+  --top-k-boundary 1 \
+  --a-noisy-boundary \
+  --b-noisy-boundary \
+  --window-shorten \
+  --a-shifted-ensemble \
+  --a-shift-offsets=-2,0,2 \
+  --a-shifted-beta 1.0 \
+  --tsae-interface-branch \
+  --tsae-interface-gated \
+  --tsae-interface-cols-per-side 1 \
+  --a-shifted-joint-b-dp \
+  --parallel-workers 4 \
+  --parallel-backend process \
+  --out ParallelWindowDecoder/results/N144_repeat12_shots100_TSAE_gated_interface_joint_b_dp_seed2_ab_noisy_shorten_parallel_only.csv
+```
+
+结果：
+
+| p | joint-B-DP | full interface + joint-B-DP | gated interface + joint-B-DP |
+|---:|---:|---:|---:|
+| 0.005 | 0/100, LER 0.090, 9.628s | 0/100, LER 0.060, 37.603s | 0/100, LER 0.090, 8.952s |
+| 0.007 | 14/100, LER 0.470, 19.824s | 8/100, LER 0.400, 77.605s | 8/100, LER 0.450, 33.039s |
+
+diagnostics：
+
+| p | total B pair decodes | gated shots | accepted | improved to zero | gated B decodes | final physical residual |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.005 | 600 | 0 | 0 | 0 | 0 | 0 |
+| 0.007 | 936 | 14 | 12 | 6 | 336 | 24 |
+
+结论：
+
+```text
+gated 版本显著降低 runtime：
+p=0.007 full interface 77.605s -> gated 33.039s
+
+它保留了 full interface 对 flagged 的改善：
+p=0.007 joint-B-DP 14/100 -> gated 8/100
+
+但 LER 没有完全达到 full interface：
+full interface LER 0.400
+gated interface LER 0.450
+```
+
+解释：
+
+```text
+gated 只处理 physical residual > 0 的 shot；
+full interface 还能改变一些 already-closed shot 的 logical class。
+
+因此 gated 是 runtime/accuracy 折中：
+它主要保留了 physical closure 收益，
+但不会捕获 zero-residual shot 上的 logical-only improvement。
+```
+
+### 28.5 gated interface + joint-B-DP, shots=1000
+
+目的：
+
+```text
+用 1000 shots 对比：
+1. 普通 parallel
+2. 普通 TSAE
+3. sliding
+4. gated interface + joint-B-DP
+```
+
+参数保持和 1000-shot baseline 一致：
+
+```text
+N=144
+repeat=12
+shots=1000
+p-list=0.003,0.004,0.005,0.007
+seed=0,1,2,3
+a_solve=5
+b_width=5
+noisy boundary + shorten
+```
+
+gated 命令：
+
+```bash
+SlidingWindowDecoder/.conda-gdg/bin/python ParallelWindowDecoder/run_experiments.py \
+  --N 144 \
+  --num-repeat 12 \
+  --num-shots 1000 \
+  --p-list 0.003,0.004,0.005,0.007 \
+  --decoders parallel \
+  --a-size 3 \
+  --a-solve-size 5 \
+  --b-width 5 \
+  --sliding-width 3 \
+  --top-k-boundary 1 \
+  --a-noisy-boundary \
+  --b-noisy-boundary \
+  --window-shorten \
+  --a-shifted-ensemble \
+  --a-shift-offsets=-2,0,2 \
+  --a-shifted-beta 1.0 \
+  --tsae-interface-branch \
+  --tsae-interface-gated \
+  --tsae-interface-cols-per-side 1 \
+  --a-shifted-joint-b-dp \
+  --parallel-workers 4 \
+  --parallel-backend process \
+  --out ParallelWindowDecoder/results/N144_repeat12_shots1000_TSAE_gated_interface_joint_b_dp_ab_noisy_shorten_parallel_only.csv
+```
+
+结果：
+
+| p | parallel | TSAE | sliding | gated interface+joint |
+|---:|---:|---:|---:|---:|
+| 0.003 | 10/1000, LER 0.011, 29.4s | 4/1000, LER 0.007, 29.2s | 0/1000, LER 0.001, 71.4s | 0/1000, LER 0.001, 30.7s |
+| 0.004 | 32/1000, LER 0.038, 31.3s | 11/1000, LER 0.022, 40.1s | 0/1000, LER 0.021, 75.3s | 0/1000, LER 0.010, 50.5s |
+| 0.005 | 119/1000, LER 0.148, 34.0s | 38/1000, LER 0.111, 42.9s | 0/1000, LER 0.093, 70.2s | 1/1000, LER 0.050, 90.9s |
+| 0.007 | 423/1000, LER 0.585, 56.7s | 275/1000, LER 0.556, 67.5s | 0/1000, LER 0.513, 92.8s | 77/1000, LER 0.449, 339.8s |
+
+gated diagnostics：
+
+| p | B pair decodes | gated shots | accepted | improved to zero | gated B decodes | final physical residual |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.003 | 6000 | 0 | 0 | 0 | 0 | 0 |
+| 0.004 | 6024 | 1 | 1 | 1 | 24 | 0 |
+| 0.005 | 6144 | 6 | 5 | 5 | 144 | 6 |
+| 0.007 | 9912 | 163 | 146 | 86 | 3912 | 200 |
+
+结论：
+
+```text
+gated interface + joint-B-DP 在 1000 shots 下持续降低 LER：
+
+p=0.004: sliding 0.021, TSAE 0.022, gated 0.010
+p=0.005: sliding 0.093, TSAE 0.111, gated 0.050
+p=0.007: sliding 0.513, TSAE 0.556, gated 0.449
+```
+
+runtime tradeoff：
+
+```text
+低/中 p 下 gated 仍可接受；
+p=0.007 runtime 变为 339.8s，
+因为 gated shots 达到 163/1000，并额外触发 3912 次 B pair decode。
+```
+
+### 28.6 repeat=18, shots=100 gated 对比
+
+目的：
+
+```text
+把 repeat 从 12 提高到 18；
+shots 降到 100 以加快测试；
+比较普通 parallel、TSAE、sliding、gated interface + joint-B-DP。
+```
+
+gated 结果文件：
+
+```text
+ParallelWindowDecoder/results/N144_repeat18_shots100_TSAE_gated_interface_joint_b_dp_ab_noisy_shorten_parallel_only.csv
+```
+
+结果：
+
+| p | parallel | TSAE | sliding | gated interface+joint |
+|---:|---:|---:|---:|---:|
+| 0.003 | 3/100, LER 0.030, 8.1s | 0/100, LER 0.000, 11.4s | 0/100, LER 0.000, 34.7s | 0/100, LER 0.000, 10.1s |
+| 0.004 | 6/100, LER 0.060, 7.4s | 4/100, LER 0.050, 10.6s | 0/100, LER 0.020, 30.5s | 0/100, LER 0.000, 15.6s |
+| 0.005 | 32/100, LER 0.350, 7.7s | 14/100, LER 0.270, 12.7s | 0/100, LER 0.150, 25.0s | 0/100, LER 0.140, 54.3s |
+| 0.007 | 68/100, LER 0.830, 9.6s | 43/100, LER 0.800, 19.9s | 0/100, LER 0.620, 28.3s | 13/100, LER 0.680, 228.2s |
+
+gated diagnostics：
+
+| p | B pair decodes | gated shots | accepted | improved to zero | gated B decodes | final physical residual |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.003 | 1500 | 0 | 0 | 0 | 0 | 0 |
+| 0.004 | 1500 | 0 | 0 | 0 | 0 | 0 |
+| 0.005 | 2340 | 5 | 5 | 5 | 840 | 0 |
+| 0.007 | 6036 | 27 | 25 | 14 | 4536 | 38 |
+
+结论：
+
+```text
+repeat=18 下，gated 在 p=0.004 / p=0.005 继续优于 sliding；
+p=0.007 下仍显著优于 plain parallel / TSAE，
+但本轮 100-shot 没有超过 sliding。
+
+高 p 的 runtime 明显增加：
+p=0.007 gated shots = 27/100，
+额外 gated B decodes = 4536。
+```
