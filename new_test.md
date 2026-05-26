@@ -4095,3 +4095,344 @@ p=0.007: 25/100 -> 25/100
 2. 新 candidate 虽然不同，但 local_cost + neighbor_B_risk 没有选中；
 3. 剩余失败可能不是单个 A2 候选池扩大能解决，而需要 A/B 联合一致性或更大上下文。
 ```
+
+## TSAE interface branching, GDG-style
+
+目的：
+
+```text
+不扩大单个 A 小窗口；
+只在 interior A 的左右 interface region 中各选 1 个最相关物理列；
+对这两个 interface bit 做 0/1 hard-fix branching；
+每个 branch 下仍然用 shifted 小 A window 解码；
+最后用原 TSAE score 选择 candidate。
+```
+
+参数：
+
+```bash
+--a-shifted-ensemble
+--a-shift-offsets=-2,0,2
+--a-shifted-beta 1.0
+--tsae-interface-branch
+--tsae-interface-cols-per-side 1
+```
+
+结果文件：
+
+```text
+ParallelWindowDecoder/results/N144_repeat12_shots100_TSAE_baseline_after_interface_branch_refactor.csv
+ParallelWindowDecoder/results/N144_repeat12_shots100_TSAE_interface_branch_c1_ab_noisy_shorten_parallel_only.csv
+```
+
+结果：
+
+| p | TSAE baseline | TSAE interface branch | runtime baseline | runtime branch |
+|---:|---:|---:|---:|---:|
+| 0.003 | 0/100, LER 0.000 | 0/100, LER 0.000 | 4.975s | 8.500s |
+| 0.004 | 3/100, LER 0.040 | 3/100, LER 0.050 | 4.926s | 9.248s |
+| 0.005 | 4/100, LER 0.140 | 4/100, LER 0.130 | 5.776s | 10.449s |
+| 0.007 | 25/100, LER 0.560 | 21/100, LER 0.530 | 8.692s | 10.873s |
+
+candidate 统计：
+
+```text
+TSAE baseline candidate count: 500
+TSAE interface branch candidate count: 1400
+interface branch payloads: 12
+```
+
+结论：
+
+```text
+interface branching 在 p=0.007 有小幅改善：
+flagged 25/100 -> 21/100
+LER 0.560 -> 0.530
+
+但 p=0.003/0.004/0.005 基本没有改善，runtime 增加明显。
+说明“在 interface bit 上主动制造 diversity”有一点有效信号，
+但当前每侧只选 1 个物理列的 hard-fix branch 仍然不足以模拟 a_solve=9 的大上下文。
+```
+
+### 与普通 parallel / sliding / oracle 对比
+
+普通 parallel、普通 TSAE、TSAE interface、sliding、oracle 使用同一组参数和 seeds 对比。
+
+普通 parallel、sliding、oracle 使用同一组参数重新运行：
+
+```text
+ParallelWindowDecoder/results/N144_repeat12_shots100_compare_sliding_plain_parallel_oracle_after_interface_branch.csv
+```
+
+普通 TSAE 和 TSAE interface branch 使用：
+
+```text
+ParallelWindowDecoder/results/N144_repeat12_shots100_TSAE_baseline_after_interface_branch_refactor.csv
+ParallelWindowDecoder/results/N144_repeat12_shots100_TSAE_interface_branch_c1_ab_noisy_shorten_parallel_only.csv
+```
+
+对比：
+
+| p | mode | flagged | LER | runtime |
+|---:|---|---:|---:|---:|
+| 0.003 | sliding | 0/100 | 0.000 | 7.168s |
+| 0.003 | plain parallel | 1/100 | 0.010 | 3.676s |
+| 0.003 | TSAE | 0/100 | 0.000 | 4.975s |
+| 0.003 | TSAE interface | 0/100 | 0.000 | 8.500s |
+| 0.003 | oracle parallel | 0/100 | 0.000 | 2.300s |
+| 0.004 | sliding | 0/100 | 0.020 | 6.459s |
+| 0.004 | plain parallel | 5/100 | 0.060 | 4.072s |
+| 0.004 | TSAE | 3/100 | 0.040 | 4.926s |
+| 0.004 | TSAE interface | 3/100 | 0.050 | 9.248s |
+| 0.004 | oracle parallel | 0/100 | 0.000 | 3.082s |
+| 0.005 | sliding | 0/100 | 0.120 | 7.923s |
+| 0.005 | plain parallel | 17/100 | 0.200 | 4.578s |
+| 0.005 | TSAE | 4/100 | 0.140 | 5.776s |
+| 0.005 | TSAE interface | 4/100 | 0.130 | 10.449s |
+| 0.005 | oracle parallel | 0/100 | 0.020 | 2.760s |
+| 0.007 | sliding | 0/100 | 0.450 | 9.023s |
+| 0.007 | plain parallel | 43/100 | 0.590 | 6.377s |
+| 0.007 | TSAE | 25/100 | 0.560 | 8.692s |
+| 0.007 | TSAE interface | 21/100 | 0.530 | 10.873s |
+| 0.007 | oracle parallel | 0/100 | 0.130 | 3.832s |
+
+结论：
+
+```text
+普通 TSAE 已经相比 plain parallel 明显降低 flagged：
+p=0.005: 17/100 -> 4/100
+p=0.007: 43/100 -> 25/100
+
+TSAE interface branch 相比普通 TSAE 只在高 p 有小幅额外改善：
+p=0.003: 0/100 -> 0/100
+p=0.004: 3/100 -> 3/100
+p=0.005: 4/100 -> 4/100
+p=0.007: 25/100 -> 21/100
+
+但它仍然没有接近 sliding/oracle 的 0 flagged，
+并且 runtime 已经高于 sliding。
+```
+
+这说明主要收益仍来自 TSAE 的 shifted context；
+interface branching 确实缓解了一部分高 p 的 A boundary hard decision 错误，
+但当前实现的额外收益有限，且代价偏高。
+
+## repeat=18 对比
+
+目的：
+
+```text
+把 num_repeat 从 12 改成 18，
+保持 N=144、shots=100、p-list=0.003,0.004,0.005,0.007、
+a_solve=5、b_width=5、sliding_width=3、noisy boundary + shorten 不变。
+```
+
+结果文件：
+
+```text
+ParallelWindowDecoder/results/N144_repeat18_shots100_compare_sliding_plain_parallel_oracle.csv
+ParallelWindowDecoder/results/N144_repeat18_shots100_TSAE_baseline.csv
+ParallelWindowDecoder/results/N144_repeat18_shots100_TSAE_interface_branch_c1.csv
+```
+
+结果：
+
+| p | mode | flagged | LER | runtime |
+|---:|---|---:|---:|---:|
+| 0.003 | sliding | 0/100 | 0.000 | 34.652s |
+| 0.003 | plain parallel | 3/100 | 0.030 | 8.122s |
+| 0.003 | TSAE | 0/100 | 0.000 | 11.403s |
+| 0.003 | TSAE interface | 0/100 | 0.000 | 17.896s |
+| 0.003 | oracle parallel | 0/100 | 0.000 | 10.867s |
+| 0.004 | sliding | 0/100 | 0.020 | 30.504s |
+| 0.004 | plain parallel | 6/100 | 0.060 | 7.387s |
+| 0.004 | TSAE | 4/100 | 0.050 | 10.579s |
+| 0.004 | TSAE interface | 5/100 | 0.060 | 20.010s |
+| 0.004 | oracle parallel | 0/100 | 0.000 | 5.236s |
+| 0.005 | sliding | 0/100 | 0.150 | 25.032s |
+| 0.005 | plain parallel | 32/100 | 0.350 | 7.696s |
+| 0.005 | TSAE | 14/100 | 0.270 | 12.738s |
+| 0.005 | TSAE interface | 13/100 | 0.270 | 25.785s |
+| 0.005 | oracle parallel | 0/100 | 0.020 | 5.532s |
+| 0.007 | sliding | 0/100 | 0.620 | 28.301s |
+| 0.007 | plain parallel | 68/100 | 0.830 | 9.571s |
+| 0.007 | TSAE | 43/100 | 0.800 | 19.873s |
+| 0.007 | TSAE interface | 38/100 | 0.780 | 23.445s |
+| 0.007 | oracle parallel | 0/100 | 0.220 | 6.557s |
+
+结论：
+
+```text
+repeat=18 后，plain parallel 的 flagged 明显上升：
+p=0.005: 32/100
+p=0.007: 68/100
+
+TSAE 仍然能明显降低 flagged：
+p=0.005: 32/100 -> 14/100
+p=0.007: 68/100 -> 43/100
+
+TSAE interface branch 只有小幅额外改善：
+p=0.005: 14/100 -> 13/100
+p=0.007: 43/100 -> 38/100
+
+sliding 和 oracle 仍保持 0 flagged，
+但 sliding runtime 随 repeat 增长明显，约 25-35s。
+```
+
+## repeat=12, shots=1000: sliding / plain parallel / TSAE
+
+目的：
+
+```text
+用 1000 shots 重新测试 repeat=12，
+比较 sliding、普通 parallel、普通 TSAE。
+```
+
+参数：
+
+```text
+N=144
+num_repeat=12
+shots=1000
+p-list=0.003,0.004,0.005,0.007
+a_solve=5
+b_width=5
+sliding_width=3
+a_noisy_boundary=True
+b_noisy_boundary=True
+window_shorten=True
+parallel_workers=4
+parallel_backend=process
+```
+
+结果文件：
+
+```text
+ParallelWindowDecoder/results/N144_repeat12_shots1000_compare_sliding_plain_parallel.csv
+ParallelWindowDecoder/results/N144_repeat12_shots1000_TSAE_baseline.csv
+```
+
+结果：
+
+| p | mode | flagged | logical_or_flagged | LER | runtime |
+|---:|---|---:|---:|---:|---:|
+| 0.003 | sliding | 0/1000 | 1/1000 | 0.001 | 71.426s |
+| 0.003 | plain parallel | 10/1000 | 11/1000 | 0.011 | 29.389s |
+| 0.003 | TSAE | 4/1000 | 7/1000 | 0.007 | 29.244s |
+| 0.004 | sliding | 0/1000 | 21/1000 | 0.021 | 75.332s |
+| 0.004 | plain parallel | 32/1000 | 38/1000 | 0.038 | 31.263s |
+| 0.004 | TSAE | 11/1000 | 22/1000 | 0.022 | 40.071s |
+| 0.005 | sliding | 0/1000 | 93/1000 | 0.093 | 70.182s |
+| 0.005 | plain parallel | 119/1000 | 148/1000 | 0.148 | 33.977s |
+| 0.005 | TSAE | 38/1000 | 111/1000 | 0.111 | 42.902s |
+| 0.007 | sliding | 0/1000 | 513/1000 | 0.513 | 92.773s |
+| 0.007 | plain parallel | 423/1000 | 585/1000 | 0.585 | 56.715s |
+| 0.007 | TSAE | 275/1000 | 556/1000 | 0.556 | 67.522s |
+
+结论：
+
+```text
+1000 shots 下，TSAE 相比 plain parallel 持续降低 flagged：
+p=0.003: 10/1000 -> 4/1000
+p=0.004: 32/1000 -> 11/1000
+p=0.005: 119/1000 -> 38/1000
+p=0.007: 423/1000 -> 275/1000
+
+TSAE 的 LER 在 p=0.004 和 p=0.005 接近 sliding：
+p=0.004: sliding 0.021, TSAE 0.022
+p=0.005: sliding 0.093, TSAE 0.111
+
+但高 p=0.007 下，TSAE 仍明显有 final flagged，
+LER 也没有接近 sliding。
+```
+
+## TSAE + z_B targeted seam correction, shots=1000
+
+目的：
+
+```text
+围绕当前 TSAE 的最强诊断信号 z_B 做 targeted physical seam correction。
+
+触发条件：
+    B noisy boundary z_B != 0
+
+候选变量：
+    z_B 对应 seam 附近的 A boundary vars + B edge vars
+
+接受条件：
+    global final residual weight 下降；
+    记录 success_to_zero 表示是否真正把 final residual 清零。
+```
+
+实现补充：
+
+```text
+在原 z_boundary_repair 基础上增加 residual-gain 的 1/2-flip 小枚举；
+如果枚举不能清零，再回退到小 BP-OSD repair。
+允许 z_boundary_repair 与 TSAE 同时使用。
+```
+
+参数：
+
+```bash
+--a-shifted-ensemble
+--a-shift-offsets=-2,0,2
+--a-shifted-beta 1.0
+--z-boundary-repair
+--z-repair-edge-width 2
+```
+
+结果文件：
+
+```text
+ParallelWindowDecoder/results/N144_repeat12_shots1000_TSAE_z_boundary_repair_edge2.csv
+```
+
+对比：
+
+| p | mode | flagged | logical_or_flagged | LER | runtime |
+|---:|---|---:|---:|---:|---:|
+| 0.003 | sliding | 0/1000 | 1/1000 | 0.001 | 71.426s |
+| 0.003 | plain parallel | 10/1000 | 11/1000 | 0.011 | 29.389s |
+| 0.003 | TSAE | 4/1000 | 7/1000 | 0.007 | 29.244s |
+| 0.003 | TSAE + zRepair | 4/1000 | 7/1000 | 0.007 | 29.531s |
+| 0.004 | sliding | 0/1000 | 21/1000 | 0.021 | 75.332s |
+| 0.004 | plain parallel | 32/1000 | 38/1000 | 0.038 | 31.263s |
+| 0.004 | TSAE | 11/1000 | 22/1000 | 0.022 | 40.071s |
+| 0.004 | TSAE + zRepair | 11/1000 | 22/1000 | 0.022 | 32.834s |
+| 0.005 | sliding | 0/1000 | 93/1000 | 0.093 | 70.182s |
+| 0.005 | plain parallel | 119/1000 | 148/1000 | 0.148 | 33.977s |
+| 0.005 | TSAE | 38/1000 | 111/1000 | 0.111 | 42.902s |
+| 0.005 | TSAE + zRepair | 38/1000 | 111/1000 | 0.111 | 40.830s |
+| 0.007 | sliding | 0/1000 | 513/1000 | 0.513 | 92.773s |
+| 0.007 | plain parallel | 423/1000 | 585/1000 | 0.585 | 56.715s |
+| 0.007 | TSAE | 275/1000 | 556/1000 | 0.556 | 67.522s |
+| 0.007 | TSAE + zRepair | 275/1000 | 556/1000 | 0.556 | 61.377s |
+
+z repair diagnostics：
+
+| p | attempts | accepted | success_to_zero | decode_flagged | weight_before | weight_after | delta |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.003 | 8 | 2 | 0 | 8 | 23 | 25 | -2 |
+| 0.004 | 22 | 15 | 0 | 22 | 84 | 71 | 13 |
+| 0.005 | 76 | 60 | 0 | 76 | 396 | 312 | 84 |
+| 0.007 | 550 | 428 | 0 | 550 | 2920 | 2376 | 544 |
+
+结论：
+
+```text
+z_B targeted repair 能降低部分 residual weight，
+但 success_to_zero 始终为 0，
+所以 final flagged 和 LER 完全没有改善。
+
+这说明当前候选集合和小 BP-OSD repair 只能减轻 seam residual，
+不能把 z_B witness 转化成完整的物理闭合 correction。
+```
+
+下一步判断：
+
+```text
+不能继续只做 residual-weight 降低型 repair；
+如果目标是降低 flagged，acceptance 应该要求 residual 清零，
+或者改成重新求解相关 B window + A boundary 的 joint physical problem。
+```

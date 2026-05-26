@@ -95,6 +95,8 @@ def run_one_config(args, p: float, seed: int) -> list[dict]:
                 tsae_top_k=args.tsae_top_k,
                 tsae_boundary_top_k=args.tsae_boundary_top_k,
                 tsae_stitch_mode=args.tsae_stitch_mode,
+                tsae_interface_branch=args.tsae_interface_branch,
+                tsae_interface_cols_per_side=args.tsae_interface_cols_per_side,
                 z_boundary_repair=args.z_boundary_repair,
                 z_repair_edge_width=args.z_repair_edge_width,
                 z_joint_retry=args.z_joint_retry,
@@ -183,6 +185,8 @@ def run_one_config(args, p: float, seed: int) -> list[dict]:
                 "tsae_top_k": args.tsae_top_k,
                 "tsae_boundary_top_k": args.tsae_boundary_top_k,
                 "tsae_stitch_mode": args.tsae_stitch_mode,
+                "tsae_interface_branch": args.tsae_interface_branch,
+                "tsae_interface_cols_per_side": args.tsae_interface_cols_per_side,
                 "z_boundary_repair": args.z_boundary_repair,
                 "z_repair_edge_width": args.z_repair_edge_width,
                 "z_joint_retry": args.z_joint_retry,
@@ -242,6 +246,8 @@ def write_rows(path: Path, rows: list[dict]) -> None:
         "tsae_top_k",
         "tsae_boundary_top_k",
         "tsae_stitch_mode",
+        "tsae_interface_branch",
+        "tsae_interface_cols_per_side",
         "z_boundary_repair",
         "z_repair_edge_width",
         "z_joint_retry",
@@ -305,6 +311,8 @@ def main():
     parser.add_argument("--tsae-top-k", type=int, default=1)
     parser.add_argument("--tsae-boundary-top-k", type=int, default=1)
     parser.add_argument("--tsae-stitch-mode", choices=["none", "component", "pairwise"], default="none")
+    parser.add_argument("--tsae-interface-branch", action="store_true")
+    parser.add_argument("--tsae-interface-cols-per-side", type=int, default=1)
     parser.add_argument("--z-boundary-repair", action="store_true")
     parser.add_argument("--z-repair-edge-width", type=int, default=2)
     parser.add_argument("--z-joint-retry", action="store_true")
